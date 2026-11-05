@@ -16,7 +16,7 @@ const envSchema = z.object({
   DISCORD_CLIENT_ID: z.string().optional(),
   DISCORD_GUILD_ID: z.string().optional(),
 
-  // Canas e Fóruns de Roteamento (Opcionais no boot, configuráveis via env)
+  // Canais e Fóruns de Roteamento (Opcionais no boot, configuráveis via env)
   CHANNEL_FINANCEIRO_ID: z.string().optional(),
   CHANNEL_COMPRAS_ID: z.string().optional(),
   CHANNEL_NOTAS_FISCAIS_ID: z.string().optional(),
@@ -26,6 +26,12 @@ const envSchema = z.object({
 
   // Google Cloud Run & Scheduling Secret (para proteger endpoints de cron)
   CRON_SECRET: z.string().optional(),
+
+  // Google Drive & Sheets Integration
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
+  GOOGLE_PRIVATE_KEY: z.string().optional(),
+  GOOGLE_DRIVE_FOLDER_ID: z.string().optional(),
+  GOOGLE_SHEETS_SPREADSHEET_ID: z.string().optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;

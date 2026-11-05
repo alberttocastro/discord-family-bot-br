@@ -207,7 +207,7 @@ router.register(new ExemploHandler());
 ## 🗺 Roadmap de Implementações (Integrado ao TickTick)
 
 - [x] **Setup da arquitetura base do Bot do Discord** (Node.js/TypeScript, Cloud Run, router e testes).
-- [ ] **Parser de Nota Fiscal e armazenamento no Google Drive**: Scraping de links SEFAZ / NFC-e e persistência organizada.
+- [x] **Parser de Nota Fiscal e armazenamento no Google Drive**: Scraping de links SEFAZ / NFC-e e persistência organizada em Google Sheets e Google Drive.
 - [ ] **Integração Meu Dinheiro**: Lançamento de despesas e extrato no sistema Meu Dinheiro via chat.
 - [ ] **Chat de Compromissos**: Criação automática de eventos no Google Calendar a partir de mensagens.
 - [ ] **Lista de Compras Inteligente**: Sincronização com o TickTick e baixa por reações (✅).
