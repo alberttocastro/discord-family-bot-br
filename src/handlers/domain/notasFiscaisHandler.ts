@@ -100,7 +100,10 @@ export class NotasFiscaisHandler implements ChannelHandler {
           },
           {
             name: "🔢 Total de Itens",
-            value: `${invoice.itemsCount} produto(s)`,
+            value:
+              invoice.totalUnitsCount && invoice.totalUnitsCount !== invoice.itemsCount
+                ? `${invoice.itemsCount} produtos (${invoice.totalUnitsCount} unid.)`
+                : `${invoice.itemsCount} produto(s)`,
             inline: true,
           }
         );

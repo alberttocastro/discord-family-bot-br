@@ -17,11 +17,41 @@ export interface InvoiceData {
   issuedAt?: Date;
   totalAmount: number;
   itemsCount: number;
+  totalUnitsCount?: number;
   items: InvoiceItem[];
   sourceUrl?: string;
 }
 
 export class SefazParser {
+  /**
+   * Consolida itens duplicados (quando o operador de caixa passa o mesmo produto em linhas separadas).
+   * Agrupa pelo código do produto ou nome padronizado + unidade + preço unitário.
+   */
+  public static consolidateItems(items: InvoiceItem[]): InvoiceItem[] {
+    const map = new Map<string, InvoiceItem>();
+
+    for (const item of items) {
+      const normalizedName = item.name.trim().toUpperCase().replace(/\s+/g, " ");
+      // Chave única prioritária: código do produto (se houver) ou nome + unidade + preço unitário
+      const key = item.code
+        ? `code:${item.code}`
+        : `name:${normalizedName}|unit:${item.unit}|price:${item.unitPrice.toFixed(2)}`;
+
+      const existing = map.get(key);
+      if (existing) {
+        existing.quantity = parseFloat((existing.quantity + item.quantity).toFixed(3));
+        existing.totalPrice = parseFloat((existing.totalPrice + item.totalPrice).toFixed(2));
+        if (existing.quantity > 0) {
+          existing.unitPrice = parseFloat((existing.totalPrice / existing.quantity).toFixed(2));
+        }
+      } else {
+        map.set(key, { ...item, name: normalizedName });
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
   /**
    * Converte strings de moeda/quantidade brasileiras ("1.234,56" ou "2,500") em números float.
    */
@@ -227,14 +257,21 @@ export class SefazParser {
     const chaveEl = $(".chave, span:contains('Chave de acesso')").text();
     const accessKey = SefazParser.extractAccessKey(chaveEl) || SefazParser.extractAccessKey(fullText);
 
+    // 7. Consolida itens duplicados registrados separadamente no caixa
+    const consolidatedItems = SefazParser.consolidateItems(items);
+    const totalUnitsCount = parseFloat(
+      consolidatedItems.reduce((acc, item) => acc + item.quantity, 0).toFixed(3)
+    );
+
     return {
       accessKey,
       establishmentName,
       cnpj,
       issuedAt,
       totalAmount,
-      itemsCount: items.length,
-      items,
+      itemsCount: consolidatedItems.length,
+      totalUnitsCount,
+      items: consolidatedItems,
     };
   }
 }
