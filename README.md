@@ -119,7 +119,23 @@ DISCORD_GUILD_ID=seu_servidor_de_testes_aqui
 npm run dev
 ```
 
-### 4. Executar os Testes
+### 4. Atualizar os Slash Commands no Discord
+Para registrar ou atualizar os comandos de barra (`/ping`, `/status`, etc.) na API do Discord:
+```bash
+# Registra na guilda do DISCORD_GUILD_ID (atualização instantânea para desenvolvimento)
+npm run deploy:commands
+
+# Ou força registro global (visível em todos os servidores do bot)
+npm run deploy:commands -- --global
+
+# Ou registra em uma guilda específica
+npm run deploy:commands -- --guild SEU_GUILD_ID
+
+# Ou limpa comandos registrados
+npm run deploy:commands -- --clear
+```
+
+### 5. Executar os Testes
 ```bash
 # Executa a suíte de testes unitários e de integração
 npm test
