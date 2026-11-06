@@ -1,6 +1,4 @@
 import { config } from "./config/index.js";
-import { createDiscordClient } from "./bot/client.js";
-import { setupBotEvents } from "./bot/events.js";
 import { MessageRouter } from "./routing/router.js";
 import { createHttpServer } from "./server/index.js";
 import { GeneralHelperHandler } from "./handlers/domain/generalHelperHandler.js";
@@ -9,9 +7,11 @@ import { NotasFiscaisHandler } from "./handlers/domain/notasFiscaisHandler.js";
 
 async function main() {
   console.log("--------------------------------------------------");
-  console.log("🚀 Iniciando Discord Family Bot...");
+  console.log("🚀 Iniciando Discord Family Bot (Modo 100% HTTP)...");
   console.log(`📦 Ambiente: ${config.NODE_ENV}`);
   console.log(`🌐 Porta HTTP: ${config.PORT}`);
+  console.log(`⚡ Modo Socket: DESATIVADO (Operando exclusivamente via HTTP)`);
+  console.log(`☁️ Google Drive/Sheets: ${config.GOOGLE_SERVICE_ACCOUNT_EMAIL ? "Configurado" : "Não configurado (modo offline/simulado)"}`);
   console.log("--------------------------------------------------");
 
   // 1. Inicializar o Router de Mensagens e Canais
@@ -23,47 +23,29 @@ async function main() {
 
   console.log(
     `[Router] ${router.getHandlers().length} handler(s) de canais registrado(s): ` +
-      router.getHandlers().map((h) => h.name).join(", ")
+    router.getHandlers().map((h) => h.name).join(", ")
   );
 
-  // 2. Inicializar o Cliente Discord
-  const client = createDiscordClient();
-  setupBotEvents(client, router, config);
-
-  // 3. Inicializar Servidor HTTP (Obrigatório para o Google Cloud Run)
-  const app = createHttpServer(client, config);
+  // 2. Inicializar Servidor HTTP (Sem conexão WebSocket / Zero socket)
+  const app = createHttpServer(router, config);
   const server = app.listen(config.PORT, () => {
-    console.log(`📡 Servidor HTTP escutando na porta ${config.PORT} (Health checks ativos em /healthz e /ready)`);
+    console.log(`📡 Servidor HTTP escutando na porta ${config.PORT}`);
+    console.log("🔗 Endpoints HTTP prontos para receber comandos e testes:");
+    console.log("   • POST /api/interactions        (Webhook oficial do Discord para Slash Commands)");
+    console.log("   • POST /api/commands/:name      (Execução direta de slash commands via HTTP)");
+    console.log("   • POST /api/channels/messages   (Envio de comandos/mensagens simulando canais)");
+    console.log("   • POST /api/cron/:job           (Triggers agendados do Cloud Scheduler)");
+    console.log("   • GET  /healthz & /ready        (Probes do Google Cloud Run)");
   });
 
-  // 4. Conectar ao Gateway do Discord
-  try {
-    console.log("🔑 Efetuando login no Discord Gateway...");
-    await client.login(config.DISCORD_TOKEN);
-  } catch (error) {
-    console.error("❌ Falha crítica ao conectar no Discord Gateway:", error);
-    // Em produção no Cloud Run, se o token estiver errado, o container deve falhar rapidamente
-    if (config.NODE_ENV !== "test") {
-      process.exit(1);
-    }
-  }
-
-  // 5. Encerramento Gracioso (Graceful Shutdown para Cloud Run)
+  // 3. Encerramento Gracioso (Graceful Shutdown para Cloud Run)
   const shutdown = async (signal: string) => {
     console.log(`\n🛑 Recebido sinal ${signal}. Encerrando graciosamente...`);
 
     server.close(() => {
-      console.log("🔒 Servidor HTTP encerrado.");
+      console.log("🔒 Servidor HTTP encerrado com sucesso.");
+      process.exit(0);
     });
-
-    try {
-      client.destroy();
-      console.log("🔌 Cliente Discord desconectado.");
-    } catch (err) {
-      console.error("Erro ao destruir cliente Discord:", err);
-    }
-
-    process.exit(0);
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));

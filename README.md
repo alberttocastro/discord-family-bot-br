@@ -135,7 +135,36 @@ npm run deploy:commands -- --guild SEU_GUILD_ID
 npm run deploy:commands -- --clear
 ```
 
-### 5. Executar os Testes
+### 5. Como Testar Comandos e Canais via HTTP (Zero Socket)
+
+A aplicação opera em modo **100% HTTP** (sem abrir conexões WebSocket). Você pode disparar comandos e simular mensagens de canais diretamente por chamadas HTTP:
+
+```bash
+# Testar comando /ping
+curl -X POST http://localhost:8080/api/commands/ping
+
+# Testar comando /status
+curl -X POST http://localhost:8080/api/commands/status
+
+# Enviar comando/mensagem simulando o canal de notas fiscais
+curl -X POST http://localhost:8080/api/channels/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel": "notas-fiscais",
+    "content": "https://nfe.sefaz.ba.gov.br/portal/nfce/qrcode.aspx?p=...",
+    "author": "Albertto"
+  }'
+
+# Enviar mensagem simulando o canal financeiro
+curl -X POST http://localhost:8080/api/channels/financeiro/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Combustível R$ 150",
+    "author": "Albertto"
+  }'
+```
+
+### 6. Executar os Testes Automatizados
 ```bash
 # Executa a suíte de testes unitários e de integração
 npm test

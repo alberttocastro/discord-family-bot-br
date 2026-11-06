@@ -98,4 +98,31 @@ describe("MessageRouter", () => {
     expect(handled).toBe(true);
     expect(healthyHandler.handle).toHaveBeenCalled();
   });
+
+  it("dispatchSimulated deve executar handlers e retornar replies e reactions sem socket", async () => {
+    const router = new MessageRouter();
+    const testHandler: ChannelHandler = {
+      name: "SimulatedHandler",
+      description: "Handles simulated message",
+      canHandle: (ctx) => ctx.channelName === "notas-fiscais",
+      handle: async (ctx) => {
+        await ctx.message.react("⏳");
+        await ctx.message.reply("Nota processada com sucesso");
+        await ctx.message.react("✅");
+      },
+    };
+
+    router.register(testHandler);
+
+    const result = await router.dispatchSimulated({
+      channel: "notas-fiscais",
+      content: "https://sefaz.ba.gov.br/nfce",
+      author: "Albertto",
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.handlersMatched).toContain("SimulatedHandler");
+    expect(result.replies[0].content).toBe("Nota processada com sucesso");
+    expect(result.reactions).toEqual(["⏳", "✅"]);
+  });
 });

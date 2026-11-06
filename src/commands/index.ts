@@ -55,30 +55,108 @@ export const statusCommand: Command = {
 
 export const commands: Command[] = [pingCommand, statusCommand];
 
-export async function registerSlashCommands(config: Config): Promise<void> {
+export interface CommandHttpResponse {
+  content?: string;
+  embeds?: any[];
+  ephemeral?: boolean;
+}
+
+/**
+ * Executa um comando de barra diretamente via chamada HTTP/Interactions, sem necessidade de WebSocket.
+ */
+export async function executeCommandHttp(
+  commandName: string,
+  router: MessageRouter,
+  _options: Record<string, any> = {}
+): Promise<CommandHttpResponse | null> {
+  const command = commands.find((cmd) => cmd.data.name === commandName);
+  if (!command) {
+    return null;
+  }
+
+  let finalResponse: CommandHttpResponse = {};
+
+  const simulatedInteraction = {
+    commandName,
+    createdTimestamp: Date.now(),
+    client: {
+      ws: { ping: 0 },
+    },
+    reply: async (payload: any) => {
+      finalResponse = typeof payload === "string" ? { content: payload } : { ...payload };
+      return {
+        createdTimestamp: Date.now(),
+      };
+    },
+    editReply: async (payload: any) => {
+      finalResponse = typeof payload === "string" ? { content: payload } : { ...payload };
+      return finalResponse;
+    },
+  } as unknown as ChatInputCommandInteraction;
+
+  await command.execute(simulatedInteraction, { router });
+  return finalResponse;
+}
+
+export interface RegisterCommandsOptions {
+  guildId?: string;
+  global?: boolean;
+  clear?: boolean;
+}
+
+export interface RegisterCommandsResult {
+  success: boolean;
+  count: number;
+  mode: "guild" | "global";
+  targetId: string;
+  error?: unknown;
+}
+
+export async function registerSlashCommands(
+  config: Config,
+  options?: RegisterCommandsOptions
+): Promise<RegisterCommandsResult | null> {
   if (!config.DISCORD_CLIENT_ID || !config.DISCORD_TOKEN) {
     console.warn("⚠️ DISCORD_CLIENT_ID ou DISCORD_TOKEN não definidos; pulando registro de Slash Commands.");
-    return;
+    return null;
   }
 
   const rest = new REST({ version: "10" }).setToken(config.DISCORD_TOKEN);
-  const commandData = commands.map((cmd) => cmd.data.toJSON());
+  const commandData = options?.clear ? [] : commands.map((cmd) => cmd.data.toJSON());
+
+  const targetGuildId = options?.global ? undefined : (options?.guildId ?? config.DISCORD_GUILD_ID);
+  const mode = targetGuildId ? "guild" : "global";
+  const targetId = targetGuildId || config.DISCORD_CLIENT_ID;
 
   try {
-    console.log(`[SlashCommands] Registrando ${commandData.length} comandos...`);
-    if (config.DISCORD_GUILD_ID) {
+    console.log(`[SlashCommands] Atualizando ${commandData.length} comando(s) no modo ${mode} (${targetId})...`);
+    if (targetGuildId) {
       await rest.put(
-        Routes.applicationGuildCommands(config.DISCORD_CLIENT_ID, config.DISCORD_GUILD_ID),
+        Routes.applicationGuildCommands(config.DISCORD_CLIENT_ID, targetGuildId),
         { body: commandData }
       );
-      console.log(`[SlashCommands] Comandos registrados no Guild ${config.DISCORD_GUILD_ID}.`);
+      console.log(`[SlashCommands] ${commandData.length} comandos registrados no Guild ${targetGuildId}.`);
     } else {
       await rest.put(Routes.applicationCommands(config.DISCORD_CLIENT_ID), {
         body: commandData,
       });
-      console.log("[SlashCommands] Comandos globais registrados.");
+      console.log(`[SlashCommands] ${commandData.length} comandos globais registrados com sucesso.`);
     }
+
+    return {
+      success: true,
+      count: commandData.length,
+      mode,
+      targetId,
+    };
   } catch (error) {
     console.error("[SlashCommands] Erro ao registrar comandos:", error);
+    return {
+      success: false,
+      count: commandData.length,
+      mode,
+      targetId,
+      error,
+    };
   }
 }

@@ -8,7 +8,17 @@ Este documento contém as diretrizes, padrões arquiteturais e convenções obri
 
 O **discord-family-bot-br** é um bot de Discord modular voltado para automação e organização familiar (gestão financeira, conciliação de notas fiscais/NFC-e, compras, agenda compartilhada, lembretes de manutenção residencial e veicular).
 
-A aplicação foi concebida para execução em contêiner no **Google Cloud Run**, exigindo tanto conexão com o Discord Gateway (WebSocket) quanto um servidor HTTP ativo para os health checks e gatilhos de cron do Cloud Run.
+A aplicação foi concebida para execução em contêiner no **Google Cloud Run** em arquitetura **100% HTTP / Serverless** (sem conexão de WebSocket/Gateway socket contínua), permitindo auto-scaling para zero, recebimento de comandos via Webhook e testes rápidos por requisições HTTP REST.
+
+---
+
+## ⚡ Regra Mandatória: Zero Socket (HTTP-First)
+- **NUNCA use ou reative o modo socket (Discord Gateway WebSocket)**.
+- O bot opera exclusivamente via HTTP REST e Webhooks de Interactions.
+- Todos os comandos, interações e simulações de canais devem ser testáveis e executáveis através dos endpoints HTTP da aplicação:
+  - `POST /api/interactions`: Webhook oficial do Discord para Slash Commands.
+  - `POST /api/commands/:name`: Execução e testes diretos de comandos via HTTP.
+  - `POST /api/channels/messages`: Envio e testes de comandos/mensagens simulando canais.
 
 ---
 
