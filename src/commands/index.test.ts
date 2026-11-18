@@ -138,5 +138,132 @@ describe("Slash Commands Registry & Deploy Script", () => {
       expect(exitCode).toBe(0);
     });
   });
+
+  describe("Comando /testar-nota (Dry-Run Parser)", () => {
+    it("deve retornar erro se URL não começar com http:// ou https://", async () => {
+      const { MessageRouter } = await import("../routing/router.js");
+      const { executeCommandHttp } = await import("./index.js");
+      const router = new MessageRouter();
+
+      const response = await executeCommandHttp("testar-nota", router, {
+        url: "ftp://link-invalido.com",
+      });
+
+      expect(response).not.toBeNull();
+      expect(response?.content).toContain("Por favor, forneça uma URL válida");
+    });
+
+    it("deve executar parser e responder com embed no formato resumo", async () => {
+      const { MessageRouter } = await import("../routing/router.js");
+      const { executeCommandHttp } = await import("./index.js");
+      const { SefazParser } = await import("../services/sefazParser.js");
+      const router = new MessageRouter();
+
+      const mockParser = new SefazParser();
+      vi.spyOn(mockParser, "parseUrl").mockResolvedValue({
+        establishmentName: "Mercado Super Teste",
+        cnpj: "12.345.678/0001-99",
+        issuedAt: new Date("2026-11-18T10:00:00Z"),
+        totalAmount: 45.5,
+        itemsCount: 2,
+        totalUnitsCount: 3,
+        accessKey: "12345678901234567890123456789012345678901234",
+        items: [
+          {
+            name: "LEITE INTEGRAL 1L",
+            quantity: 2,
+            unit: "UN",
+            unitPrice: 5.25,
+            totalPrice: 10.5,
+          },
+          {
+            name: "CAFE GOURMET 500G",
+            quantity: 1,
+            unit: "UN",
+            unitPrice: 35.0,
+            totalPrice: 35.0,
+          },
+        ],
+      });
+
+      const response = await executeCommandHttp(
+        "testar-nota",
+        router,
+        {
+          url: "https://nfe.sefaz.ba.gov.br/portal/nfce/qrcode.aspx?p=123",
+          formato: "resumo",
+        },
+        mockParser
+      );
+
+      expect(response).not.toBeNull();
+      expect(response?.embeds).toBeDefined();
+      expect(response?.embeds?.length).toBe(1);
+
+      const embed = response?.embeds?.[0];
+      expect(embed.title).toContain("Análise da Nota Fiscal (Modo Teste / Dry-Run)");
+      expect(embed.fields.some((f: any) => f.name.includes("Estabelecimento") && f.value.includes("Mercado Super Teste"))).toBe(true);
+      expect(embed.fields.some((f: any) => f.name.includes("Total") && f.value.includes("45.50"))).toBe(true);
+      expect(embed.fields.some((f: any) => f.name.includes("Produtos Identificados") && f.value.includes("LEITE INTEGRAL"))).toBe(true);
+    });
+
+    it("deve responder em bloco de código json se formato for json", async () => {
+      const { MessageRouter } = await import("../routing/router.js");
+      const { executeCommandHttp } = await import("./index.js");
+      const { SefazParser } = await import("../services/sefazParser.js");
+      const router = new MessageRouter();
+
+      const mockParser = new SefazParser();
+      vi.spyOn(mockParser, "parseUrl").mockResolvedValue({
+        establishmentName: "Loja ABC",
+        totalAmount: 10.0,
+        itemsCount: 1,
+        items: [
+          {
+            name: "PÃO DE QUEIJO",
+            quantity: 1,
+            unit: "UN",
+            unitPrice: 10.0,
+            totalPrice: 10.0,
+          },
+        ],
+      });
+
+      const response = await executeCommandHttp(
+        "testar-nota",
+        router,
+        [
+          { name: "url", value: "https://sefaz.sp.gov.br/nfce" },
+          { name: "formato", value: "json" },
+        ],
+        mockParser
+      );
+
+      expect(response).not.toBeNull();
+      expect(response?.content).toContain("```json");
+      expect(response?.content).toContain('"establishmentName": "Loja ABC"');
+    });
+
+    it("deve capturar e retornar mensagem de erro amigável se parser falhar", async () => {
+      const { MessageRouter } = await import("../routing/router.js");
+      const { executeCommandHttp } = await import("./index.js");
+      const { SefazParser } = await import("../services/sefazParser.js");
+      const router = new MessageRouter();
+
+      const mockParser = new SefazParser();
+      vi.spyOn(mockParser, "parseUrl").mockRejectedValue(new Error("SEFAZ Timeout / Indisponível"));
+
+      const response = await executeCommandHttp(
+        "testar-nota",
+        router,
+        { url: "https://sefaz.ba.gov.br/offline" },
+        mockParser
+      );
+
+      expect(response).not.toBeNull();
+      expect(response?.content).toContain("Falha ao processar a Nota Fiscal");
+      expect(response?.content).toContain("SEFAZ Timeout / Indisponível");
+    });
+  });
 });
 
