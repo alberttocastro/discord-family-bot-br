@@ -15,6 +15,7 @@ export interface CommandContext {
 
 export interface Command {
   data: SlashCommandBuilder | any;
+  ephemeral?: boolean;
   execute(interaction: ChatInputCommandInteraction, context: CommandContext): Promise<void>;
 }
 

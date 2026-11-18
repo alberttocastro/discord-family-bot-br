@@ -163,6 +163,43 @@ describe("HTTP Server (100% HTTP / Serverless / Probes)", () => {
       expect(response.body.type).toBe(4);
       expect(response.body.data.content).toContain("Pong");
     });
+
+    it("deve responder de imediato com DEFERRED (type: 5) e editar mensagem em background quando token for informado", async () => {
+      const router = new MessageRouter();
+      const mockWebhookService = {
+        editOriginalResponse: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const app = createHttpServer(router, mockConfig, undefined, mockWebhookService);
+
+      const response = await request(app)
+        .post("/api/interactions")
+        .send({
+          type: 2,
+          token: "interaction-token-xyz",
+          application_id: "app-id-123",
+          data: {
+            name: "ping",
+          },
+        });
+
+      // 1. Resposta imediata dentro de milissegundos
+      expect(response.status).toBe(200);
+      expect(response.body.type).toBe(5);
+
+      // Aguarda o tick do event loop para o background processar
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // 2. Confirma que o serviço chamou o patch do webhook com a resposta final
+      expect(mockWebhookService.editOriginalResponse).toHaveBeenCalledTimes(1);
+      expect(mockWebhookService.editOriginalResponse).toHaveBeenCalledWith(
+        "app-id-123",
+        "interaction-token-xyz",
+        expect.objectContaining({
+          content: expect.stringContaining("Pong"),
+        })
+      );
+    });
   });
 
   describe("Endpoint /api/cron/:job (Cloud Scheduler)", () => {

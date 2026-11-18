@@ -4,8 +4,9 @@ import cors from "cors";
 import { Client } from "discord.js";
 import { Config } from "../config/index.js";
 import { MessageRouter } from "../routing/router.js";
-import { executeCommandHttp } from "../commands/index.js";
+import { executeCommandHttp, commands } from "../commands/index.js";
 import { verifyDiscordSignature } from "./discordSecurity.js";
+import { DiscordWebhookService } from "../services/discordWebhookService.js";
 
 // Extende a tipagem de Request para carregar o buffer bruto do corpo
 interface AuthenticatedRequest extends Request {
@@ -15,7 +16,8 @@ interface AuthenticatedRequest extends Request {
 export function createHttpServer(
   routerOrClient: MessageRouter | Client,
   config: Config,
-  optionalRouter?: MessageRouter
+  optionalRouter?: MessageRouter,
+  webhookService: DiscordWebhookService = new DiscordWebhookService()
 ): Express {
   const app = express();
 
@@ -96,7 +98,7 @@ export function createHttpServer(
       }
     }
 
-    const { type, data } = req.body;
+    const { type, data, token, application_id } = req.body;
 
     // Discord Ping (Tipo 1) -> Responde com Pong
     if (type === 1) {
@@ -106,6 +108,49 @@ export function createHttpServer(
 
     // Discord Slash Commands (Tipo 2)
     if (type === 2 && data?.name) {
+      const appId = application_id || config.DISCORD_CLIENT_ID;
+
+      // Se 'token' estiver presente (chamada real do Discord), responde imediatamente
+      // com Type 5 (DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE) para evitar o timeout de 3 segundos
+      // do Discord ("Esta interação falhou"), e em seguida processa e atualiza a resposta.
+      if (token && appId) {
+        const command = commands.find((cmd) => cmd.data.name === data.name);
+        const isEphemeral = command?.ephemeral || false;
+
+        // 1. Responde de imediato ao Discord (< 100ms)
+        res.status(200).json({
+          type: 5,
+          ...(isEphemeral ? { data: { flags: 64 } } : {}),
+        });
+
+        // 2. Processa a execução do comando em background e edita a mensagem original
+        (async () => {
+          try {
+            const commandResponse = await executeCommandHttp(data.name, router, data.options);
+            if (!commandResponse) {
+              await webhookService.editOriginalResponse(appId, token, {
+                content: `❌ Comando \`/${data.name}\` não encontrado.`,
+              });
+              return;
+            }
+
+            await webhookService.editOriginalResponse(appId, token, commandResponse);
+          } catch (err) {
+            console.error(`[Interactions:Deferred] Erro ao processar comando /${data.name}:`, err);
+            try {
+              await webhookService.editOriginalResponse(appId, token, {
+                content: "❌ Ocorreu um erro interno ao processar o comando.",
+              });
+            } catch (patchErr) {
+              console.error("[Interactions:Deferred] Falha ao enviar erro para o Discord:", patchErr);
+            }
+          }
+        })();
+
+        return;
+      }
+
+      // Fallback síncrono para testes ou requisições locais sem token do Discord
       try {
         const commandResponse = await executeCommandHttp(data.name, router, data.options);
         if (!commandResponse) {
