@@ -57,11 +57,25 @@ export class SefazParser {
    */
   public static parsePtBrNumber(val: string | null | undefined): number {
     if (!val) return 0;
-    const cleaned = val
+    const trimmed = val.trim();
+
+    // Rejeita padrões óbvios que não são números monetários ou quantidades,
+    // como versões ("V. 02.08.00"), datas ("18/11/2026"), horários ("14:30:00")
+    if (/^[vV]\.?\s*\d+(\.\d+){2,}/.test(trimmed)) return 0;
+    if (/^\d{2}\/\d{2}\/\d{4}/.test(trimmed)) return 0;
+    if (/^\d{2}:\d{2}(:\d{2})?/.test(trimmed)) return 0;
+
+    const cleaned = trimmed
       .replace(/[^\d,.-]/g, "") // remove "R$", espaços, etc.
       .trim();
 
     if (!cleaned) return 0;
+
+    // Se tiver mais de um ponto e nenhuma vírgula (ex: 02.08.00 ou 1.2.3), é código/versão, não número
+    const dotCount = (cleaned.match(/\./g) || []).length;
+    if (dotCount > 1 && !cleaned.includes(",")) {
+      return 0;
+    }
 
     // Se tiver vírgula, assume padrão BR (1.234,56 -> 1234.56)
     if (cleaned.includes(",")) {
@@ -72,6 +86,53 @@ export class SefazParser {
 
     const parsed = parseFloat(cleaned);
     return isNaN(parsed) ? 0 : parsed;
+  }
+
+  /**
+   * Formata lista de produtos para exibição em Embeds do Discord, respeitando rigorosamente
+   * o limite máximo da API do Discord (1024 caracteres por campo).
+   */
+  public static formatItemsPreview(
+    items: InvoiceItem[],
+    maxChars = 900
+  ): { itemsText: string; remainingCount: number } {
+    if (!items || items.length === 0) {
+      return {
+        itemsText: "Nenhum produto individual identificado.",
+        remainingCount: 0,
+      };
+    }
+
+    const lines: string[] = [];
+    let currentLength = 0;
+    let displayedCount = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      // Sanitiza quebras de linha e limita tamanho do nome
+      const cleanName = item.name.replace(/[\r\n\t]+/g, " ").trim();
+      const safeName = cleanName.length > 55 ? `${cleanName.slice(0, 52)}...` : cleanName;
+      const line = `• **${safeName}**\n  └ ${item.quantity} ${item.unit} × R$ ${item.unitPrice.toFixed(2)} = **R$ ${item.totalPrice.toFixed(2)}**`;
+
+      const remaining = items.length - (displayedCount + 1);
+      const remainingNotice = remaining > 0 ? `\n*...e mais ${remaining} produto(s) na nota.*` : "";
+
+      if (currentLength + line.length + remainingNotice.length + (lines.length > 0 ? 1 : 0) > maxChars) {
+        break;
+      }
+
+      lines.push(line);
+      currentLength += line.length + (lines.length > 1 ? 1 : 0);
+      displayedCount++;
+    }
+
+    const remainingCount = items.length - displayedCount;
+    const remainingText = remainingCount > 0 ? `\n*...e mais ${remainingCount} produto(s) na nota.*` : "";
+
+    return {
+      itemsText: lines.length > 0 ? lines.join("\n") + remainingText : "Nenhum produto pôde ser exibido.",
+      remainingCount,
+    };
   }
 
   /**
@@ -117,6 +178,33 @@ export class SefazParser {
   public parseHtml(html: string): InvoiceData {
     const $ = cheerio.load(html);
 
+    // 0. Remove scripts, estilos e outros elementos que nunca devem ser interpretados como texto
+    $("script, style, noscript, svg, iframe").remove();
+
+    const fullText = $("body").text();
+
+    // 0.1 Detectar erros explícitos reportados pela própria SEFAZ (ex: "[QRCode] Erro: Parâmetros essenciais ausentes")
+    const sefazError = $("#lblInformacao, .validacao, .alert-danger, .msg-erro").first().text().trim();
+    if (sefazError && sefazError.toLowerCase().includes("erro")) {
+      throw new Error(`A SEFAZ retornou o seguinte erro: "${sefazError}"`);
+    }
+
+    // 0.2 Detectar páginas de consulta protegidas por CAPTCHA / código anti-robô
+    const hasCaptcha =
+      $("#img_captcha, #imgCaptcha, #IMG_CAPTCHA, #txt_cod_antirobo, #TXT_COD_ANTIROBO, .g-recaptcha, .h-captcha").length > 0 ||
+      /c[oó]digo\s+(?:anti-?rob[oô]|impresso\s+ao\s+lado)/i.test(fullText);
+
+    const isConsultaChave =
+      $("#frm_NFCEC_consulta_chave_acesso, #frm_nfcec_consulta_chave_acesso").length > 0 ||
+      fullText.includes("NFCEC_consulta_chave_acesso") ||
+      /digite a chave de acesso/i.test(fullText);
+
+    if (hasCaptcha || isConsultaChave) {
+      throw new Error(
+        "A URL fornecida leva à página de consulta da SEFAZ protegida por CAPTCHA / código anti-robô. Para processar a nota, envie o link completo do QR Code impresso no cupom fiscal (com todos os parâmetros de autenticação)."
+      );
+    }
+
     // 1. Extrair Nome do Estabelecimento
     let establishmentName = $(
       ".txtTopo, #u20, .ui-header h1, .txtTitTopo, #lblNomeFantasia, .conteudo-topo h1, .txtCenter .linha3"
@@ -134,7 +222,6 @@ export class SefazParser {
     }
 
     // 2. Extrair CNPJ
-    const fullText = $("body").text();
     const cnpjMatch = fullText.match(/CNPJ[:\s]*([0-9]{2}\.[0-9]{3}\.[0-9]{3}\/[0-9]{4}-[0-9]{2})/i);
     const cnpj = cnpjMatch ? cnpjMatch[1] : undefined;
 
@@ -220,7 +307,15 @@ export class SefazParser {
           const col0 = $(tds[0]).text().trim();
           const colLast = $(tds[tds.length - 1]).text().trim();
           const val = SefazParser.parsePtBrNumber(colLast);
-          if (val > 0 && col0.length > 2 && !col0.toLowerCase().includes("total")) {
+          if (
+            val > 0 &&
+            col0.length >= 2 &&
+            col0.length <= 120 &&
+            !col0.toLowerCase().includes("total") &&
+            !col0.includes("{") &&
+            !col0.includes("function") &&
+            !col0.includes("//")
+          ) {
             items.push({
               name: col0,
               quantity: 1,
@@ -262,6 +357,13 @@ export class SefazParser {
     const totalUnitsCount = parseFloat(
       consolidatedItems.reduce((acc, item) => acc + item.quantity, 0).toFixed(3)
     );
+
+    // Validação final: se não encontrou nenhum item E total deu 0, página inválida
+    if (consolidatedItems.length === 0 && totalAmount === 0) {
+      throw new Error(
+        "Não foi possível identificar itens ou valores válidos nesta página da SEFAZ. Verifique se o link informado corresponde a uma NFC-e válida e acessível."
+      );
+    }
 
     return {
       accessKey,

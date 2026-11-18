@@ -13,6 +13,10 @@ describe("SefazParser", () => {
       expect(SefazParser.parsePtBrNumber("10")).toBe(10);
       expect(SefazParser.parsePtBrNumber("")).toBe(0);
       expect(SefazParser.parsePtBrNumber(null)).toBe(0);
+      expect(SefazParser.parsePtBrNumber("V. 02.08.00")).toBe(0);
+      expect(SefazParser.parsePtBrNumber("02.08.00")).toBe(0);
+      expect(SefazParser.parsePtBrNumber("18/11/2026")).toBe(0);
+      expect(SefazParser.parsePtBrNumber("14:30:00")).toBe(0);
     });
   });
 
@@ -187,6 +191,75 @@ describe("SefazParser", () => {
       expect(invoice.items.length).toBe(2);
       expect(invoice.totalUnitsCount).toBe(6);
       expect(invoice.sourceUrl).toBe("http://nfe.sefaz.ba.gov.br/servicos/nfce/qrcode.aspx?p=...");
+    });
+
+    it("deve lançar erro se a página retornada for de consulta por chave com CAPTCHA", () => {
+      const captchaHtml = `
+        <html>
+          <body>
+            <form id="frm_NFCEC_consulta_chave_acesso">
+              <input type="text" id="txt_cod_antirobo" />
+              <img id="img_captcha" src="captcha.png" />
+              <span>Digite o código anti-robô impresso ao lado</span>
+            </form>
+          </body>
+        </html>
+      `;
+
+      expect(() => parser.parseHtml(captchaHtml)).toThrow(/CAPTCHA \/ código anti-robô/i);
+    });
+
+    it("deve lançar erro se a SEFAZ retornar mensagem de erro explícita", () => {
+      const errorHtml = `
+        <html>
+          <body>
+            <span id="lblInformacao" class="validacao">[QRCode] Erro: Parâmetros essenciais ausentes.</span>
+          </body>
+        </html>
+      `;
+
+      expect(() => parser.parseHtml(errorHtml)).toThrow(/Parâmetros essenciais ausentes/i);
+    });
+
+    it("deve ignorar tags <script> e não incluí-las como produtos", () => {
+      const scriptHtml = `
+        <html>
+          <body>
+            <table>
+              <tr>
+                <td><script>var form = 123; function test() {}</script></td>
+                <td>V. 02.08.00</td>
+              </tr>
+            </table>
+          </body>
+        </html>
+      `;
+
+      expect(() => parser.parseHtml(scriptHtml)).toThrow(/Não foi possível identificar itens ou valores válidos/i);
+    });
+  });
+
+  describe("formatItemsPreview", () => {
+    it("deve formatar produtos e limitar caracteres para não exceder limites do Discord", () => {
+      const items: InvoiceItem[] = Array.from({ length: 30 }, (_, i) => ({
+        name: `PRODUTO GOURMET TESTE LONGO NUMERO ${i + 1}`,
+        quantity: 1,
+        unit: "UN",
+        unitPrice: 10.0,
+        totalPrice: 10.0,
+      }));
+
+      const { itemsText, remainingCount } = SefazParser.formatItemsPreview(items, 500);
+
+      expect(itemsText.length).toBeLessThanOrEqual(550);
+      expect(remainingCount).toBeGreaterThan(0);
+      expect(itemsText).toContain(`...e mais ${remainingCount} produto(s) na nota.`);
+    });
+
+    it("deve retornar texto padrão se lista de itens for vazia", () => {
+      const { itemsText, remainingCount } = SefazParser.formatItemsPreview([]);
+      expect(itemsText).toBe("Nenhum produto individual identificado.");
+      expect(remainingCount).toBe(0);
     });
   });
 });

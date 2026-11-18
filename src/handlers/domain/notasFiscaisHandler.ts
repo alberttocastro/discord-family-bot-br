@@ -54,17 +54,8 @@ export class NotasFiscaisHandler implements ChannelHandler {
       // 2. Persistência no Google Sheets / Drive
       const syncResult = await this.driveService.syncInvoice(invoice);
 
-      // 3. Monta resumo dos itens (máximo 8 itens para não estourar o limite de caracteres do embed)
-      const previewItems = invoice.items.slice(0, 8);
-      const itemsText = previewItems
-        .map(
-          (item) =>
-            `• **${item.name}**\n  └ ${item.quantity} ${item.unit} × R$ ${item.unitPrice.toFixed(2)} = **R$ ${item.totalPrice.toFixed(2)}**`
-        )
-        .join("\n");
-
-      const remainingCount = invoice.items.length - previewItems.length;
-      const remainingText = remainingCount > 0 ? `\n*...e mais ${remainingCount} item(ns)*` : "";
+      // 3. Monta resumo dos itens respeitando rigorosamente o limite de caracteres do embed
+      const { itemsText } = SefazParser.formatItemsPreview(invoice.items, 900);
 
       // 4. Formata status do Google Drive / Sheets
       let driveStatusText = "";
@@ -121,8 +112,8 @@ export class NotasFiscaisHandler implements ChannelHandler {
       }
 
       embed.addFields({
-        name: "🛒 Itens Comprados",
-        value: itemsText + remainingText || "Nenhum item discriminado.",
+        name: `🛒 Itens Comprados (${invoice.items.length})`,
+        value: itemsText || "Nenhum item discriminado.",
       });
 
       embed.addFields({

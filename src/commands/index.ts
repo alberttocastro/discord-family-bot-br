@@ -119,16 +119,7 @@ export const testarNotaCommand: Command = {
       }
 
       // Formato Resumo (Embed)
-      const previewItems = invoice.items.slice(0, 10);
-      const itemsText = previewItems
-        .map(
-          (item) =>
-            `• **${item.name}**\n  └ ${item.quantity} ${item.unit} × R$ ${item.unitPrice.toFixed(2)} = **R$ ${item.totalPrice.toFixed(2)}**`
-        )
-        .join("\n");
-
-      const remainingCount = invoice.items.length - previewItems.length;
-      const remainingText = remainingCount > 0 ? `\n*...e mais ${remainingCount} produto(s) na nota.*` : "";
+      const { itemsText } = SefazParser.formatItemsPreview(invoice.items, 900);
 
       const embed: any = {
         title: "🔍 Análise da Nota Fiscal (Modo Teste / Dry-Run)",
@@ -178,7 +169,7 @@ export const testarNotaCommand: Command = {
 
       embed.fields.push({
         name: `🛒 Produtos Identificados (${invoice.items.length})`,
-        value: itemsText + remainingText || "Nenhum produto individual identificado na tabela.",
+        value: itemsText || "Nenhum produto individual identificado na tabela.",
       });
 
       embed.timestamp = new Date().toISOString();
