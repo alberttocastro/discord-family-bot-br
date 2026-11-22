@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.git
+.github
+.agents
+.env*
+!package*.json
+!tsconfig.json
+!src/
+*.log

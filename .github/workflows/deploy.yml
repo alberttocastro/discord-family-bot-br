@@ -1,0 +1,69 @@
+name: Deploy to GCP VM
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run Tests & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test
+
+  deploy:
+    name: Deploy to GCP Compute Engine VM
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USER }}
+          key: ${{ secrets.GCP_VM_SSH_KEY }}
+          port: ${{ secrets.GCP_VM_SSH_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Conectado à VM do GCP. Atualizando repositório..."
+
+            # Caminho onde o projeto está clonado na VM
+            cd ${{ secrets.GCP_PROJECT_DIR || '~/discord-family-bot-br' }}
+
+            # Puxa as alterações mais recentes da branch main
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Instala dependências e compila
+            npm ci --omit=dev=false
+            npm run build
+
+            # Reinicia o serviço (ajuste conforme seu gerenciador: pm2, systemd ou docker)
+            if command -v pm2 > /dev/null; then
+              pm2 reload all || pm2 start dist/index.js --name discord-bot
+            elif systemctl is-active --quiet discord-bot; then
+              sudo systemctl restart discord-bot
+            elif [ -f docker-compose.yml ]; then
+              docker compose up -d --build
+            else
+              echo "⚠️ Atualização concluída, mas nenhum gerenciador (pm2/systemd/docker) foi reiniciado automaticamente."
+            fi
+
+            echo "✅ Deploy concluído com sucesso!"
