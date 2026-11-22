@@ -12,7 +12,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm test",
+    "deploy:prod": "npm run build && (pm2 reload discord-bot || pm2 start dist/index.js --name discord-bot)",
+    "pm2:start": "pm2 start dist/index.js --name discord-bot",
+    "pm2:reload": "pm2 reload discord-bot",
+    "pm2:stop": "pm2 stop discord-bot",
+    "pm2:logs": "pm2 logs discord-bot"
   },
   "keywords": [
     "discord",

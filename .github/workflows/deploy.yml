@@ -51,19 +51,8 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Instala dependências e compila
+            # Instala dependências e faz o deploy via script do package.json
             npm ci --omit=dev=false
-            npm run build
-
-            # Reinicia o serviço (ajuste conforme seu gerenciador: pm2, systemd ou docker)
-            if command -v pm2 > /dev/null; then
-              pm2 reload all || pm2 start dist/index.js --name discord-bot
-            elif systemctl is-active --quiet discord-bot; then
-              sudo systemctl restart discord-bot
-            elif [ -f docker-compose.yml ]; then
-              docker compose up -d --build
-            else
-              echo "⚠️ Atualização concluída, mas nenhum gerenciador (pm2/systemd/docker) foi reiniciado automaticamente."
-            fi
+            npm run deploy:prod
 
             echo "✅ Deploy concluído com sucesso!"
