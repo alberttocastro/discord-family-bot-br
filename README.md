@@ -8,6 +8,8 @@ Projetado especificamente para execução escalável e segura em contêiner no *
 
 ## 📐 Arquitetura
 
+> **Infraestrutura de Produção (GCP Always Free + Cloudflare Tunnel + Domínio Próprio):** Consulte a documentação detalhada de rede, túnel e segurança em [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md).
+
 O bot opera com uma arquitetura híbrida de **Discord Gateway (WebSocket)** e **Servidor HTTP (Express)** para atender aos requisitos de contêineres gerenciados pelo Google Cloud Run e permitir gatilhos via Cloud Scheduler:
 
 ```mermaid
