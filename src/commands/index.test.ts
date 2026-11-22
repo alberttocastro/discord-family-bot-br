@@ -265,5 +265,77 @@ describe("Slash Commands Registry & Deploy Script", () => {
       expect(response?.content).toContain("SEFAZ Timeout / Indisponível");
     });
   });
+
+  describe("Comando /compras", () => {
+    it("deve executar subcomandos de compras via HTTP", async () => {
+      const { MessageRouter } = await import("../routing/router.js");
+      const { executeCommandHttp } = await import("./index.js");
+      const { ComprasService } = await import("../services/compras/comprasService.js");
+      const { InMemoryComprasRepository } = await import("../services/compras/comprasRepository.js");
+
+      const router = new MessageRouter();
+      const service = new ComprasService(new InMemoryComprasRepository());
+
+      // 1. Stage inicial (vazio)
+      const stageRes = await executeCommandHttp(
+        "compras",
+        router,
+        { subcommand: "stage" },
+        undefined,
+        service
+      );
+      expect(stageRes?.embeds?.[0].title).toContain("Stage de Compras");
+
+      // 2. Adicionar itens ao Stage
+      const addRes = await executeCommandHttp(
+        "compras",
+        router,
+        { subcommand: "adicionar", itens: "Leite, Pão, Café" },
+        undefined,
+        service
+      );
+      expect(addRes?.content).toContain("3** item(ns) adicionado(s)");
+
+      // 3. Criar lista a partir do Stage
+      const listRes = await executeCommandHttp(
+        "compras",
+        router,
+        { subcommand: "criar-lista", nome: "Mercado Semanal" },
+        undefined,
+        service
+      );
+      expect(listRes?.content).toContain('Lista de compras **"Mercado Semanal"** criada');
+
+      // 4. Ver lista ativa
+      const verRes = await executeCommandHttp(
+        "compras",
+        router,
+        { subcommand: "ver" },
+        undefined,
+        service
+      );
+      expect(verRes?.embeds?.[0].title).toContain("Lista Ativa: Mercado Semanal");
+
+      // 5. Ticar item
+      const ticarRes = await executeCommandHttp(
+        "compras",
+        router,
+        { subcommand: "ticar", item: "Leite" },
+        undefined,
+        service
+      );
+      expect(ticarRes?.content).toContain("comprado");
+
+      // 6. Finalizar
+      const finRes = await executeCommandHttp(
+        "compras",
+        router,
+        { subcommand: "finalizar" },
+        undefined,
+        service
+      );
+      expect(finRes?.embeds?.[0].title).toContain("Finalização da Lista");
+    });
+  });
 });
 

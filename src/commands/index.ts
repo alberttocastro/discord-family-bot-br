@@ -7,10 +7,13 @@ import {
 import { Config } from "../config/index.js";
 import { MessageRouter } from "../routing/router.js";
 import { SefazParser } from "../services/sefazParser.js";
+import { ComprasService } from "../services/compras/comprasService.js";
+import { comprasCommand } from "./comprasCommand.js";
 
 export interface CommandContext {
   router: MessageRouter;
   parser?: SefazParser;
+  comprasService?: ComprasService;
 }
 
 export interface Command {
@@ -185,11 +188,17 @@ export const testarNotaCommand: Command = {
   },
 };
 
-export const commands: Command[] = [pingCommand, statusCommand, testarNotaCommand];
+export const commands: Command[] = [
+  pingCommand,
+  statusCommand,
+  testarNotaCommand,
+  comprasCommand,
+];
 
 export interface CommandHttpResponse {
   content?: string;
   embeds?: any[];
+  components?: any[];
   ephemeral?: boolean;
 }
 
@@ -200,7 +209,8 @@ export async function executeCommandHttp(
   commandName: string,
   router: MessageRouter,
   _options: Record<string, any> | any[] = {},
-  parser?: SefazParser
+  parser?: SefazParser,
+  comprasService?: ComprasService
 ): Promise<CommandHttpResponse | null> {
   const command = commands.find((cmd) => cmd.data.name === commandName);
   if (!command) {
@@ -210,17 +220,46 @@ export async function executeCommandHttp(
   let finalResponse: CommandHttpResponse = {};
 
   const optionsMap = new Map<string, any>();
+  let subcommandName: string | null = null;
+
   if (Array.isArray(_options)) {
     for (const opt of _options) {
-      if (opt && opt.name) {
+      if (opt && (opt.type === 1 || Array.isArray(opt.options))) {
+        subcommandName = opt.name;
+        if (Array.isArray(opt.options)) {
+          for (const nested of opt.options) {
+            if (nested && nested.name) {
+              optionsMap.set(nested.name, nested.value);
+            }
+          }
+        }
+      } else if (opt && opt.name) {
         optionsMap.set(opt.name, opt.value);
       }
     }
   } else if (_options && typeof _options === "object") {
+    if (_options.subcommand) {
+      subcommandName = String(_options.subcommand);
+    }
     for (const [key, val] of Object.entries(_options)) {
       optionsMap.set(key, val);
     }
   }
+
+  const normalizePayload = (payload: any): CommandHttpResponse => {
+    const normalized = typeof payload === "string" ? { content: payload } : { ...payload };
+    if (normalized.embeds) {
+      normalized.embeds = normalized.embeds.map((emb: any) =>
+        typeof emb?.toJSON === "function" ? emb.toJSON() : emb
+      );
+    }
+    if (normalized.components) {
+      normalized.components = normalized.components.map((comp: any) =>
+        typeof comp?.toJSON === "function" ? comp.toJSON() : comp
+      );
+    }
+    return normalized;
+  };
 
   const simulatedInteraction = {
     commandName,
@@ -228,7 +267,11 @@ export async function executeCommandHttp(
     client: {
       ws: { ping: 0 },
     },
+    user: {
+      username: optionsMap.get("author") || "Usuário",
+    },
     options: {
+      getSubcommand: (_required = false) => subcommandName || optionsMap.get("subcommand") || null,
       getString: (name: string, _required = false) => {
         const val = optionsMap.get(name);
         return val !== undefined && val !== null ? String(val) : null;
@@ -239,6 +282,7 @@ export async function executeCommandHttp(
       },
       getBoolean: (name: string) => {
         const val = optionsMap.get(name);
+        if (val === undefined || val === null) return null;
         return typeof val === "boolean" ? val : val === "true";
       },
       getNumber: (name: string) => {
@@ -249,22 +293,22 @@ export async function executeCommandHttp(
     },
     deferReply: async () => ({}),
     reply: async (payload: any) => {
-      finalResponse = typeof payload === "string" ? { content: payload } : { ...payload };
+      finalResponse = normalizePayload(payload);
       return {
         createdTimestamp: Date.now(),
       };
     },
     editReply: async (payload: any) => {
-      finalResponse = typeof payload === "string" ? { content: payload } : { ...payload };
+      finalResponse = normalizePayload(payload);
       return finalResponse;
     },
     followUp: async (payload: any) => {
-      finalResponse = typeof payload === "string" ? { content: payload } : { ...payload };
+      finalResponse = normalizePayload(payload);
       return finalResponse;
     },
   } as unknown as ChatInputCommandInteraction;
 
-  await command.execute(simulatedInteraction, { router, parser });
+  await command.execute(simulatedInteraction, { router, parser, comprasService });
   return finalResponse;
 }
 
