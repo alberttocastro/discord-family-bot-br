@@ -74,6 +74,9 @@ export class DiscordWebhookService {
     if (response.embeds !== undefined) {
       body.embeds = this.sanitizeEmbeds(response.embeds);
     }
+    if (response.components !== undefined) {
+      body.components = response.components;
+    }
 
     await axios.patch(url, body, {
       headers: {

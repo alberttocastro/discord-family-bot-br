@@ -22,6 +22,7 @@ export interface SimulatedDispatchResult {
   replies: Array<{
     content?: string;
     embeds?: any[];
+    components?: any[];
   }>;
   reactions: string[];
 }
@@ -103,7 +104,7 @@ export class MessageRouter {
     const authorId = options.authorId || "user-123";
     const content = options.content || "";
 
-    const replies: Array<{ content?: string; embeds?: any[] }> = [];
+    const replies: Array<{ content?: string; embeds?: any[]; components?: any[] }> = [];
     const reactions: string[] = [];
 
     const simulatedMessage = {
@@ -144,11 +145,15 @@ export class MessageRouter {
         } else {
           // Normaliza embeds caso sejam EmbedBuilder do discord.js
           const rawEmbeds = payload.embeds
-            ? payload.embeds.map((emb: any) => (typeof emb.toJSON === "function" ? emb.toJSON() : emb))
+            ? payload.embeds.map((emb: any) => (typeof emb?.toJSON === "function" ? emb.toJSON() : emb))
+            : undefined;
+          const rawComponents = payload.components
+            ? payload.components.map((comp: any) => (typeof comp?.toJSON === "function" ? comp.toJSON() : comp))
             : undefined;
           replies.push({
             content: payload.content,
             embeds: rawEmbeds,
+            components: rawComponents,
           });
         }
         return Promise.resolve(simulatedMessage as any);
