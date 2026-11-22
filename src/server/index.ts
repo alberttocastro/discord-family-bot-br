@@ -7,6 +7,7 @@ import { MessageRouter } from "../routing/router.js";
 import { executeCommandHttp, commands } from "../commands/index.js";
 import { verifyDiscordSignature } from "./discordSecurity.js";
 import { DiscordWebhookService } from "../services/discordWebhookService.js";
+import { ComprasService } from "../services/compras/comprasService.js";
 
 // Extende a tipagem de Request para carregar o buffer bruto do corpo
 interface AuthenticatedRequest extends Request {
@@ -17,7 +18,8 @@ export function createHttpServer(
   routerOrClient: MessageRouter | Client,
   config: Config,
   optionalRouter?: MessageRouter,
-  webhookService: DiscordWebhookService = new DiscordWebhookService()
+  webhookService: DiscordWebhookService = new DiscordWebhookService(),
+  comprasService: ComprasService = new ComprasService()
 ): Express {
   const app = express();
 
@@ -126,7 +128,13 @@ export function createHttpServer(
         // 2. Processa a execução do comando em background e edita a mensagem original
         (async () => {
           try {
-            const commandResponse = await executeCommandHttp(data.name, router, data.options);
+            const commandResponse = await executeCommandHttp(
+              data.name,
+              router,
+              data.options,
+              undefined,
+              comprasService
+            );
             if (!commandResponse) {
               await webhookService.editOriginalResponse(appId, token, {
                 content: `❌ Comando \`/${data.name}\` não encontrado.`,
@@ -152,7 +160,13 @@ export function createHttpServer(
 
       // Fallback síncrono para testes ou requisições locais sem token do Discord
       try {
-        const commandResponse = await executeCommandHttp(data.name, router, data.options);
+        const commandResponse = await executeCommandHttp(
+          data.name,
+          router,
+          data.options,
+          undefined,
+          comprasService
+        );
         if (!commandResponse) {
           res.status(200).json({
             type: 4,
@@ -183,6 +197,156 @@ export function createHttpServer(
       }
     }
 
+    // Discord Component Interactions (Tipo 3 - Buttons e Select Menus)
+    if (type === 3 && data?.custom_id) {
+      const customId: string = data.custom_id;
+      const author = req.body.member?.user?.username || req.body.user?.username || "Usuário";
+      const values: string[] = Array.isArray(data.values) ? data.values : [];
+
+      try {
+        if (customId === "shopping_check_item") {
+          await comprasService.checkMultipleItems(values, author, true);
+          const activeList = await comprasService.getActiveList();
+          if (activeList) {
+            const { embed, components } = comprasService.buildActiveListEmbed(activeList);
+            res.status(200).json({
+              type: 7, // UPDATE_MESSAGE
+              data: { embeds: [embed], components },
+            });
+            return;
+          }
+        }
+
+        if (customId === "shopping_create_all") {
+          const newList = await comprasService.createListFromStage(undefined, "all", author);
+          const { embed, components } = comprasService.buildActiveListEmbed(newList);
+          res.status(200).json({
+            type: 7,
+            data: {
+              content: `🎉 Lista de compras **"${newList.name}"** criada!`,
+              embeds: [embed],
+              components,
+            },
+          });
+          return;
+        }
+
+        if (customId === "shopping_stage_clear") {
+          await comprasService.clearStage();
+          const { embed, components } = comprasService.buildStageEmbed([]);
+          res.status(200).json({
+            type: 7,
+            data: { embeds: [embed], components },
+          });
+          return;
+        }
+
+        if (customId === "shopping_finish_menu") {
+          const activeList = await comprasService.getActiveList();
+          if (activeList) {
+            const { embed, components } = comprasService.buildFinishOptionsEmbed(activeList);
+            res.status(200).json({
+              type: 7,
+              data: { embeds: [embed], components },
+            });
+            return;
+          }
+        }
+
+        if (customId === "shopping_finish_keep") {
+          await comprasService.finishActiveList("keep", author);
+          res.status(200).json({
+            type: 7,
+            data: {
+              content: "📦 Lista de compras arquivada mantendo o histórico de itens!",
+              embeds: [],
+              components: [],
+            },
+          });
+          return;
+        }
+
+        if (customId === "shopping_finish_new") {
+          const { newList } = await comprasService.finishActiveList("new_list_missing", author);
+          if (newList) {
+            const { embed, components } = comprasService.buildActiveListEmbed(newList);
+            res.status(200).json({
+              type: 7,
+              data: {
+                content: `🔄 Nova lista ativa **"${newList.name}"** criada com os itens faltantes!`,
+                embeds: [embed],
+                components,
+              },
+            });
+            return;
+          }
+          res.status(200).json({
+            type: 7,
+            data: {
+              content: "🎉 Todos os itens foram comprados! Nenhuma pendência.",
+              embeds: [],
+              components: [],
+            },
+          });
+          return;
+        }
+
+        if (customId === "shopping_finish_stage") {
+          const { returnedToStageCount } = await comprasService.finishActiveList(
+            "return_to_stage",
+            author
+          );
+          res.status(200).json({
+            type: 7,
+            data: {
+              content: `📥 **${returnedToStageCount}** item(ns) pendente(s) foram devolvidos ao Stage!`,
+              embeds: [],
+              components: [],
+            },
+          });
+          return;
+        }
+
+        if (customId === "shopping_refresh_list") {
+          const activeList = await comprasService.getActiveList();
+          if (activeList) {
+            const { embed, components } = comprasService.buildActiveListEmbed(activeList);
+            res.status(200).json({
+              type: 7,
+              data: { embeds: [embed], components },
+            });
+            return;
+          }
+          res.status(200).json({
+            type: 7,
+            data: {
+              content: "ℹ️ Nenhuma lista de compras ativa no momento.",
+              embeds: [],
+              components: [],
+            },
+          });
+          return;
+        }
+
+        // Se customId desconhecido
+        res.status(200).json({
+          type: 4,
+          data: { content: `Componente desconhecido: ${customId}`, flags: 64 },
+        });
+        return;
+      } catch (err: any) {
+        console.error(`[Interactions:Component] Erro ao processar customId ${customId}:`, err);
+        res.status(200).json({
+          type: 4,
+          data: {
+            content: `❌ Erro ao processar ação: ${err?.message || "Erro inesperado."}`,
+            flags: 64,
+          },
+        });
+        return;
+      }
+    }
+
     res.status(400).json({ error: "Unsupported interaction type" });
   });
 
@@ -193,7 +357,7 @@ export function createHttpServer(
     const { name } = req.params;
     const options = req.body || {};
 
-    const response = await executeCommandHttp(name, router, options);
+    const response = await executeCommandHttp(name, router, options, undefined, comprasService);
     if (!response) {
       res.status(404).json({
         success: false,
@@ -274,6 +438,89 @@ export function createHttpServer(
       job,
       triggeredAt: new Date().toISOString(),
     });
+  });
+
+  // =========================================================================
+  // 5. Endpoints REST da Lista de Compras (Stage, Lista Ativa, Check, Finish)
+  // =========================================================================
+  app.get("/api/compras/stage", async (_req: Request, res: Response) => {
+    const stage = await comprasService.getStage();
+    res.status(200).json({ success: true, count: stage.length, stage });
+  });
+
+  app.post("/api/compras/stage", async (req: Request, res: Response) => {
+    const { items, author } = req.body || {};
+    if (!items) {
+      res.status(400).json({ success: false, error: "O campo 'items' é obrigatório." });
+      return;
+    }
+    const added = await comprasService.addToStage(items, author || "API");
+    res.status(200).json({ success: true, count: added.length, added });
+  });
+
+  app.delete("/api/compras/stage", async (req: Request, res: Response) => {
+    const { items } = req.body || {};
+    if (Array.isArray(items) && items.length > 0) {
+      const removed = await comprasService.removeFromStage(items);
+      res.status(200).json({ success: true, removedCount: removed.length, removed });
+      return;
+    }
+    const count = await comprasService.clearStage();
+    res.status(200).json({ success: true, clearedCount: count });
+  });
+
+  app.get("/api/compras/lists/active", async (_req: Request, res: Response) => {
+    const activeList = await comprasService.getActiveList();
+    res.status(200).json({ success: true, activeList });
+  });
+
+  app.post("/api/compras/lists", async (req: Request, res: Response) => {
+    const { name, items, author } = req.body || {};
+    try {
+      const list = await comprasService.createListFromStage(name, items || "all", author || "API");
+      res.status(201).json({ success: true, list });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || "Erro ao criar lista." });
+    }
+  });
+
+  app.post("/api/compras/lists/active/check", async (req: Request, res: Response) => {
+    const { item, items, itemName, itemIds, checked = true, author } = req.body || {};
+    const targets: string[] = [];
+    if (item) targets.push(item);
+    if (itemName) targets.push(itemName);
+    if (Array.isArray(items)) targets.push(...items);
+    if (Array.isArray(itemIds)) targets.push(...itemIds);
+
+    if (targets.length === 0) {
+      res.status(400).json({ success: false, error: "Informe pelo menos um item para atualizar." });
+      return;
+    }
+
+    try {
+      const list = await comprasService.checkMultipleItems(targets, author || "API", Boolean(checked));
+      res.status(200).json({ success: true, list });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || "Erro ao atualizar itens." });
+    }
+  });
+
+  app.post("/api/compras/lists/active/finish", async (req: Request, res: Response) => {
+    const { action, author } = req.body || {};
+    if (!action || !["keep", "new_list_missing", "return_to_stage"].includes(action)) {
+      res.status(400).json({
+        success: false,
+        error: "O campo 'action' deve ser 'keep', 'new_list_missing' ou 'return_to_stage'.",
+      });
+      return;
+    }
+
+    try {
+      const result = await comprasService.finishActiveList(action, author || "API");
+      res.status(200).json({ success: true, result });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || "Erro ao finalizar lista." });
+    }
   });
 
   return app;

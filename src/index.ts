@@ -4,6 +4,8 @@ import { createHttpServer } from "./server/index.js";
 import { GeneralHelperHandler } from "./handlers/domain/generalHelperHandler.js";
 import { FinanceiroHandler } from "./handlers/domain/financeiroHandler.js";
 import { NotasFiscaisHandler } from "./handlers/domain/notasFiscaisHandler.js";
+import { ComprasHandler } from "./handlers/domain/comprasHandler.js";
+import { ComprasService } from "./services/compras/comprasService.js";
 
 async function main() {
   console.log("--------------------------------------------------");
@@ -14,26 +16,31 @@ async function main() {
   console.log(`☁️ Google Drive/Sheets: ${config.GOOGLE_SERVICE_ACCOUNT_EMAIL ? "Configurado" : "Não configurado (modo offline/simulado)"}`);
   console.log("--------------------------------------------------");
 
-  // 1. Inicializar o Router de Mensagens e Canais
+  // 1. Inicializar Serviços de Domínio
+  const comprasService = new ComprasService();
+
+  // 2. Inicializar o Router de Mensagens e Canais
   const router = new MessageRouter();
   router
     .register(new GeneralHelperHandler())
     .register(new FinanceiroHandler())
-    .register(new NotasFiscaisHandler());
+    .register(new NotasFiscaisHandler())
+    .register(new ComprasHandler(comprasService));
 
   console.log(
     `[Router] ${router.getHandlers().length} handler(s) de canais registrado(s): ` +
     router.getHandlers().map((h) => h.name).join(", ")
   );
 
-  // 2. Inicializar Servidor HTTP (Sem conexão WebSocket / Zero socket)
-  const app = createHttpServer(router, config);
+  // 3. Inicializar Servidor HTTP (Sem conexão WebSocket / Zero socket)
+  const app = createHttpServer(router, config, undefined, undefined, comprasService);
   const server = app.listen(config.PORT, () => {
     console.log(`📡 Servidor HTTP escutando na porta ${config.PORT}`);
     console.log("🔗 Endpoints HTTP prontos para receber comandos e testes:");
     console.log("   • POST /api/interactions        (Webhook oficial do Discord para Slash Commands)");
     console.log("   • POST /api/commands/:name      (Execução direta de slash commands via HTTP)");
     console.log("   • POST /api/channels/messages   (Envio de comandos/mensagens simulando canais)");
+    console.log("   • POST /api/compras/*           (Endpoints REST da Lista de Compras & Stage)");
     console.log("   • POST /api/cron/:job           (Triggers agendados do Cloud Scheduler)");
     console.log("   • GET  /healthz & /ready        (Probes do Google Cloud Run)");
   });

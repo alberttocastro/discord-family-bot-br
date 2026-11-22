@@ -224,4 +224,161 @@ describe("HTTP Server (100% HTTP / Serverless / Probes)", () => {
       expect(response.body.job).toBe("alerta-boletos");
     });
   });
+
+  describe("Interactions Type 3 (Discord Components: Botões e Select Menus)", () => {
+    it("deve processar clique em shopping_create_all e responder com Type 7 (UPDATE_MESSAGE)", async () => {
+      const { ComprasService } = await import("../services/compras/comprasService.js");
+      const { InMemoryComprasRepository } = await import("../services/compras/comprasRepository.js");
+
+      const router = new MessageRouter();
+      const comprasService = new ComprasService(new InMemoryComprasRepository());
+      await comprasService.addToStage(["Leite", "Café"], "Albertto");
+
+      const app = createHttpServer(router, mockConfig, undefined, undefined, comprasService);
+
+      const response = await request(app)
+        .post("/api/interactions")
+        .send({
+          type: 3,
+          data: {
+            custom_id: "shopping_create_all",
+          },
+          user: { username: "Albertto" },
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.type).toBe(7); // UPDATE_MESSAGE
+      expect(response.body.data.embeds[0].title).toContain("Lista Ativa");
+
+      const activeList = await comprasService.getActiveList();
+      expect(activeList).not.toBeNull();
+      expect(activeList?.items).toHaveLength(2);
+    });
+
+    it("deve processar seleção em shopping_check_item e ticar os itens", async () => {
+      const { ComprasService } = await import("../services/compras/comprasService.js");
+      const { InMemoryComprasRepository } = await import("../services/compras/comprasRepository.js");
+
+      const router = new MessageRouter();
+      const comprasService = new ComprasService(new InMemoryComprasRepository());
+      await comprasService.addToStage(["Leite", "Café"], "Albertto");
+      const list = await comprasService.createListFromStage("Mercado", "all");
+
+      const app = createHttpServer(router, mockConfig, undefined, undefined, comprasService);
+
+      const response = await request(app)
+        .post("/api/interactions")
+        .send({
+          type: 3,
+          data: {
+            custom_id: "shopping_check_item",
+            values: [list.items[0].id],
+          },
+          user: { username: "Albertto" },
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.type).toBe(7);
+
+      const activeList = await comprasService.getActiveList();
+      expect(activeList?.items[0].checked).toBe(true);
+    });
+
+    it("deve processar shopping_finish_stage e devolver não comprados ao Stage", async () => {
+      const { ComprasService } = await import("../services/compras/comprasService.js");
+      const { InMemoryComprasRepository } = await import("../services/compras/comprasRepository.js");
+
+      const router = new MessageRouter();
+      const comprasService = new ComprasService(new InMemoryComprasRepository());
+      await comprasService.addToStage(["Leite", "Café"], "Albertto");
+      await comprasService.createListFromStage("Mercado", "all");
+      // Nenhum foi comprado
+
+      const app = createHttpServer(router, mockConfig, undefined, undefined, comprasService);
+
+      const response = await request(app)
+        .post("/api/interactions")
+        .send({
+          type: 3,
+          data: {
+            custom_id: "shopping_finish_stage",
+          },
+          user: { username: "Albertto" },
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.type).toBe(7);
+      expect(response.body.data.content).toContain("devolvidos ao Stage");
+
+      expect(await comprasService.getActiveList()).toBeNull();
+      const stage = await comprasService.getStage();
+      expect(stage).toHaveLength(2);
+    });
+  });
+
+  describe("Endpoints REST da Lista de Compras (/api/compras/*)", () => {
+    it("deve gerenciar ciclo completo da lista de compras via REST", async () => {
+      const { ComprasService } = await import("../services/compras/comprasService.js");
+      const { InMemoryComprasRepository } = await import("../services/compras/comprasRepository.js");
+
+      const router = new MessageRouter();
+      const comprasService = new ComprasService(new InMemoryComprasRepository());
+      const app = createHttpServer(router, mockConfig, undefined, undefined, comprasService);
+
+      // 1. GET /api/compras/stage (inicialmente vazio)
+      const stageGet1 = await request(app).get("/api/compras/stage");
+      expect(stageGet1.status).toBe(200);
+      expect(stageGet1.body.count).toBe(0);
+
+      // 2. POST /api/compras/stage (adicionar 4 itens)
+      const stagePost = await request(app)
+        .post("/api/compras/stage")
+        .send({ items: ["Leite", "Café", "Pão", "Manteiga"], author: "Albertto" });
+      expect(stagePost.status).toBe(200);
+      expect(stagePost.body.count).toBe(4);
+
+      // 3. POST /api/compras/lists (criar lista com 2 itens)
+      const listPost = await request(app)
+        .post("/api/compras/lists")
+        .send({ name: "Padaria e Laticínios", items: ["Leite", "Pão"], author: "Albertto" });
+      expect(listPost.status).toBe(201);
+      expect(listPost.body.list.name).toBe("Padaria e Laticínios");
+      expect(listPost.body.list.items).toHaveLength(2);
+
+      // Verifica que Café e Manteiga permaneceram no Stage
+      const stageGet2 = await request(app).get("/api/compras/stage");
+      expect(stageGet2.body.count).toBe(2);
+      expect(stageGet2.body.stage.map((s: any) => s.name)).toEqual(["Café", "Manteiga"]);
+
+      // 4. GET /api/compras/lists/active
+      const listActiveGet = await request(app).get("/api/compras/lists/active");
+      expect(listActiveGet.status).toBe(200);
+      expect(listActiveGet.body.activeList.name).toBe("Padaria e Laticínios");
+
+      // 5. POST /api/compras/lists/active/check (ticar Leite)
+      const checkPost = await request(app)
+        .post("/api/compras/lists/active/check")
+        .send({ item: "Leite", checked: true, author: "Albertto" });
+      expect(checkPost.status).toBe(200);
+      const leiteItem = checkPost.body.list.items.find((i: any) => i.name === "Leite");
+      expect(leiteItem.checked).toBe(true);
+
+      // 6. POST /api/compras/lists/active/finish com "return_to_stage"
+      // Pão não foi comprado -> deve voltar ao stage com Café e Manteiga
+      const finishPost = await request(app)
+        .post("/api/compras/lists/active/finish")
+        .send({ action: "return_to_stage", author: "Albertto" });
+      expect(finishPost.status).toBe(200);
+      expect(finishPost.body.result.returnedToStageCount).toBe(1);
+
+      // Verifica Stage final
+      const stageGet3 = await request(app).get("/api/compras/stage");
+      expect(stageGet3.body.count).toBe(3);
+      expect(stageGet3.body.stage.map((s: any) => s.name)).toEqual(["Café", "Manteiga", "Pão"]);
+
+      // Verifica que lista ativa agora é null
+      const listActiveGet2 = await request(app).get("/api/compras/lists/active");
+      expect(listActiveGet2.body.activeList).toBeNull();
+    });
+  });
 });
