@@ -38,6 +38,7 @@ const envSchema = z.object({
   GOOGLE_PRIVATE_KEY: optionalString,
   GOOGLE_DRIVE_FOLDER_ID: optionalString,
   GOOGLE_SHEETS_SPREADSHEET_ID: optionalString,
+  GOOGLE_COMPRAS_SPREADSHEET_ID: optionalString,
 });
 
 export type Config = z.infer<typeof envSchema>;
