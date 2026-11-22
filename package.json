@@ -6,13 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "node --max-old-space-size=2048 ./node_modules/typescript/bin/tsc",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js",
     "start": "node dist/index.js",
     "deploy:commands": "tsx src/scripts/deployCommands.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "node --max-old-space-size=2048 ./node_modules/typescript/bin/tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "discord",
